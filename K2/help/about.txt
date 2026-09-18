@@ -1,0 +1,29 @@
+
+ Commodore 64 for Wildbits/K2
+
+ C64MEGA65 by MJoergen & sy2002
+ K2 port powered by MiSTer2MEGA65
+
+ Quickstart:
+
+ * Create a /c64 folder on your SD card &
+   place your D64, CRT and PRG files there
+ * You can work with long file names and
+   with arbitrary sub-folders
+ * Both SD card slots are supported. Back
+   slot takes precedence over bottom slot
+ * Copy the c64k2 config file to your
+   /c64 folder so that your menu settings
+   are being saved
+
+ This board has no expansion port and no
+ IEC connector, so hardware cartridges and
+ real 1541/SD2IEC drives are unavailable.
+ Simulated drives and CRT/PRG files from
+ the SD card work as usual.
+
+ Upstream docs: https://c64.mega65.org
+
+
+ Cursor right to learn more.       (1 of 3)
+ Press Space to close the help screen.

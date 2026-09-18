@@ -1,0 +1,21 @@
+
+ Commodore 64 for Wildbits/K2
+
+ C64MEGA65 by MJoergen & sy2002
+ K2 port powered by MiSTer2MEGA65
+
+ While the C64 is running: Press RESTORE
+ to mount drives & to configure the core.
+
+ Both SD card slots work: The card in the
+ back has higher precedence than the
+ card at the bottom of the case.
+
+ While you are in the file browser:
+   F1: Switch to internal SD card
+   F3: Switch to external SD card
+
+ Output is HDMI only on this board.
+
+
+ Press Space to continue.
