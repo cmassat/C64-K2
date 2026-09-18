@@ -7,9 +7,13 @@ port of the same board.
 
 ## Status
 
-**Bring-up, milestone M0 complete.** RTL elaboration of the whole design passes
-with zero errors and zero critical warnings. Nothing has been synthesized,
-routed or run on hardware yet. See [Milestones](#milestones).
+**Bring-up: M0 and M2 complete.** RTL elaboration and synthesis both pass with
+zero errors and zero critical warnings, and every K2 timing constraint matches
+(no "no pins matched"). Post-synthesis utilization is 33,392 LUTs (24.8%),
+29,155 FFs (10.8%) and **192/365 BRAM tiles (52.6%)** — far more headroom than
+AExp, whose 356/365 came from holding the Amiga's Chip/Slow RAM and Kickstart
+in BRAM. Nothing has been placed, routed or run on hardware yet.
+See [Milestones](#milestones).
 
 ## Architecture
 
@@ -52,8 +56,14 @@ Board-specific details worth preserving:
   matrix already uses C64 cell numbering, so `CORE/vhdl/keyboard.vhd` needs no
   K2 variant. K2's four independent arrow keys override M2M slots 74/73/7/2.
 - **RESTORE** at AA4 is an input with a key-down pulse, not an HDMI-enable
-  output. It currently opens the OSM (slot 67), which is the AExp binding;
-  milestone M2 moves it to slot 75 so it reaches the C64 NMI as it should.
+  output. A bare press goes to slot 75 (`m65_restore`) and therefore to the
+  6510 NMI, so **RUN/STOP + RESTORE still performs the C64's own warm reset**.
+  Holding **C=** (the `/F` logo key, slot 61) first redirects the same pulse to
+  slot 67 and opens the OSM. The destination is latched at the leading edge, so
+  releasing C= mid-press cannot redirect it. C= was chosen over the key AExp
+  calls Fn because that keycap *is* RUN/STOP (slot 63) on this board; claiming
+  it would have swallowed the warm-reset chord forever. `tb_k2_restore` guards
+  all of this, including that neither RUN/STOP nor CTRL qualifies the chord.
 - **Menu configuration:** [config_variant.tcl](scripts/config_variant.tcl)
   generates the K2-only menu labels from the canonical configuration. Welcome
   and help content lives in [help/](help/) (ASCII, at most 43 columns and 30
@@ -100,8 +110,8 @@ static timing analysis.
 | # | Scope | Status |
 |---|---|---|
 | M0 | Repo, board shell, project creation, elaboration | Done |
-| M1 | C64 BASIC boot on HDMI | Next |
-| M2 | Optical keyboard, RESTORE to slot 75, Fn menu hotkey | Planned |
+| M1 | C64 BASIC boot on HDMI | Next (needs hardware) |
+| M2 | Optical keyboard, RESTORE to the NMI, C= menu chord | Done |
 | M3 | D64 / 1541 via vdrives and the file browser | Planned |
 | M4 | PS/2 mouse as a 1351 (POT values, not quadrature) | Planned |
 | M5 | Real LCD artwork, status LEDs, RTC, die temperature | Planned |
@@ -157,7 +167,7 @@ against Minimig RTL and Amiga scancodes:
 
 - `tb_k2_keymap` (raw Amiga scancodes out of `CORE/vhdl/keyboard.vhd`).
   C64MEGA65's `keyboard.vhd` drives the CIA-1 matrix instead, and the K2 matrix
-  is already C64-numbered. M2 writes the replacement.
+  is already C64-numbered, so no K2 keymap variant exists to test.
 - `test_ps2_mouse.sh`, `tb_k2_ps2_mouse.sv`, `tb_k2_keyboard_guard.sv` (Amiga
   quadrature mouse against Minimig `userio`/`ciaa`). M4 writes the 1351 suite.
 

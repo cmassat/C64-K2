@@ -9,7 +9,9 @@
 -- Most cells retain C64 numbering. K2's four independent cursors do not:
 -- PA0/PB2=Left, PA0/PB7=Up, PA0/PB8=Down, PA6/PB8=Right. Source: local
 -- FoenixToolbox/src/dev/kbd_f256k.c and F256_MicroKernel/f256/kbd_f256k2.asm.
--- RESTORE's active-low pulse becomes a 100 ms Help (67) press, auto-released.
+-- RESTORE's active-low pulse becomes a 100 ms press of one logical key,
+-- auto-released: slot 75 (m65_restore -> the C64 NMI) on its own, or slot 67
+-- (Help -> open/close the OSM) when C= is already held.
 -- Sample halfway into each 1 ms row, beyond the reference 50 us IR settling
 -- interval; two scans debounce both make and break (at most 16 ms).
 ----------------------------------------------------------------------------------
@@ -50,7 +52,7 @@ architecture rtl of k2_keyboard_matrix is
    signal restore_meta_n : std_logic := '1';
    signal restore_sync_n : std_logic := '1';
    signal restore_armed  : std_logic := '0';
-   signal restore_reset  : std_logic := '0';
+   signal restore_menu   : std_logic := '0';
    signal restore_count  : natural range 0 to C_RESTORE_TICKS := 0;
    signal rearm_count    : natural range 0 to C_REARM_TICKS := 0;
 
@@ -76,7 +78,7 @@ begin
 
          if rst_i = '1' then
             restore_armed <= '0';
-            restore_reset <= '0';
+            restore_menu  <= '0';
             restore_count <= 0;
             rearm_count   <= 0;
          elsif restore_count > 0 then
@@ -94,9 +96,15 @@ begin
             if restore_armed = '1' and restore_sync_n = '0' then
                restore_count <= C_RESTORE_TICKS;
                restore_armed <= '0';
-               -- Qualify once, before either destination sees the pulse.
-               -- Physical CTRL=PA7/PB2, /F=PA7/PB5. Fn is irrelevant.
-               restore_reset <= not (matrix_n(7*9+2) or matrix_n(7*9+5));
+               -- Qualify once, before either destination sees the pulse, so
+               -- releasing the modifier mid-press cannot redirect it.
+               -- Physical C= (the /F logo key) is PA7/PB5 = M2M slot 61.
+               --
+               -- C= rather than RUN/STOP: on this board the key AExp calls Fn
+               -- IS the RUN/STOP keycap (slot 63), and RUN/STOP+RESTORE is the
+               -- C64's own warm reset.  Claiming it for the menu would swallow
+               -- that chord forever.
+               restore_menu <= not matrix_n(7*9+5);
             end if;
          end if;
       end if;
@@ -180,11 +188,11 @@ begin
       key_state_n_o(7)  <= matrix_n(8);       -- Down:  PA0/PB8
       key_state_n_o(2)  <= matrix_n(6*9 + 8); -- Right: PA6/PB8
 
-      -- Inherited AExp binding: RESTORE opens the OSM (slot 67).  Milestone M2
-      -- moves RESTORE to slot 75 so it reaches the C64 NMI, and puts the menu on
-      -- an Fn combo; C64MEGA65's keyboard.vhd defines m65_restore := 75.
-      key_state_n_o(67) <= '0' when restore_count > 0 and restore_reset = '0' else '1';
-      key_state_n_o(75) <= '0' when restore_count > 0 and restore_reset = '1' else '1';
+      -- Mutually exclusive destinations, chosen at the leading edge above.
+      -- C64MEGA65's keyboard.vhd defines m65_restore := 75 and drives the 6510
+      -- NMI from it, so a bare RESTORE must reach slot 75 and nothing else.
+      key_state_n_o(67) <= '0' when restore_count > 0 and restore_menu = '1' else '1';
+      key_state_n_o(75) <= '0' when restore_count > 0 and restore_menu = '0' else '1';
    end process;
 
 end architecture rtl;

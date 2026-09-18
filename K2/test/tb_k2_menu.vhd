@@ -170,8 +170,11 @@ begin
          -- Controls and limitations that are specific to this board, so a
          -- careless help-page edit cannot quietly restore MEGA65 wording.
          if page = 0 then
-            assert contains(text(1 to size), "Press RESTORE")
-               report "Welcome page does not name the K2 menu key" severity failure;
+            assert contains(text(1 to size), "hold C= and")
+               report "Welcome page does not name the K2 menu chord" severity failure;
+            assert contains(text(1 to size), "RUN/STOP + RESTORE")
+               report "Welcome page does not preserve the C64 warm reset"
+               severity failure;
             assert contains(text(1 to size), "HDMI only")
                report "Welcome page does not state HDMI-only output" severity failure;
          elsif page = 1 then
@@ -181,11 +184,19 @@ begin
             assert contains(text(1 to size), "c64k2")
                report "About page does not name the K2 settings file" severity failure;
          elsif page = 2 then
-            assert contains(text(1 to size), "RESTORE:")
-               report "Keyboard page does not bind RESTORE to the menu"
+            assert contains(text(1 to size), "C= + RESTORE:")
+               report "Keyboard page does not bind C= + RESTORE to the menu"
                severity failure;
             assert not contains(text(1 to size), "Help:")
                report "Keyboard page still binds the MEGA65 Help key" severity failure;
+            -- The chord exists so these two C64 behaviours survive; if the
+            -- page stops saying so, the binding has probably been changed.
+            assert contains(text(1 to size), "C64 NMI")
+               report "Keyboard page no longer documents the bare RESTORE NMI"
+               severity failure;
+            assert contains(text(1 to size), "RUN/STOP +")
+               report "Keyboard page no longer documents the warm reset"
+               severity failure;
          elsif page = 3 then
             assert contains(text(1 to size), "no analog VGA")
                report "Status page does not state the missing VGA output"

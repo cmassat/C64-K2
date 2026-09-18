@@ -73,10 +73,12 @@ begin
 
    key_num         <= C_SCAN_ORDER(scan_slot);
    key_num_o       <= key_num;
-   -- The already-qualified reset request also works while the OSM is open.
+   -- AExp exempted slot 75 from the gate because it carried its reset request.
+   -- Here slot 75 is the C64's RESTORE key driving the 6510 NMI, so it must be
+   -- gated like every other key: no NMI while the user is in the OSM.
    key_pressed_n_o <= key_snapshot_n(key_num)
-                     when (enable_core_i = '1' and core_snapshot_enabled = '1')
-                          or key_num = 75 else '1';
+                     when enable_core_i = '1' and core_snapshot_enabled = '1'
+                     else '1';
 
    p_sync_and_scan : process (clk_main_i)
    begin

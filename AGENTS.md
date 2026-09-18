@@ -17,9 +17,10 @@ Vivado 2026.1 is at `/mnt/e/2026.1/Vivado`. On this Fedora host it needs an
 ncurses-5 shim (`libncurses.so.5` -> `.so.6`) on `LD_LIBRARY_PATH`, or
 `ncurses-compat-libs` installed.
 
-**Status: milestone M0 complete (2026-09-18).** Full RTL elaboration passes
-with zero errors and zero critical warnings. Nothing synthesized, routed or
-run on hardware yet.
+**Status: M0 and M2 complete (2026-09-18).** RTL elaboration and synthesis
+both pass with zero errors and zero critical warnings, and every K2 timing
+constraint matches. 33,392 LUTs, 192/365 BRAM tiles. Not yet placed, routed
+or run on hardware.
 
 ## The emulated machine
 
@@ -87,6 +88,11 @@ IEC devices (no connector), analog VGA and retro 15 kHz (HDMI only).
   80-bit low-active M2M logical-key bitmap; `k2_m2m_keyb` turns that into
   `(key_num, pressed_n)` plus `qnice_keys_n`. The matrix is already
   C64-numbered, so `CORE/vhdl/keyboard.vhd` is untouched.
+  The RESTORE pin carries a key-down pulse only; it is stretched to 100 ms and
+  routed to **slot 75** (the 6510 NMI) on its own, or to **slot 67** (open the
+  OSM) when **C=** (slot 61) is already held, latched at the leading edge.
+  Do not move the chord onto RUN/STOP: that keycap is slot 63, and
+  RUN/STOP + RESTORE is the C64's own warm reset. `tb_k2_restore` asserts this.
 - **Video.** The whole M2M `av_pipeline`/ascal chain is instantiated unmodified
   inside `framework_k2`; only HDMI is physically wired.
 
