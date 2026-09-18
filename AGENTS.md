@@ -17,10 +17,14 @@ Vivado 2026.1 is at `/mnt/e/2026.1/Vivado`. On this Fedora host it needs an
 ncurses-5 shim (`libncurses.so.5` -> `.so.6`) on `LD_LIBRARY_PATH`, or
 `ncurses-compat-libs` installed.
 
-**Status: M0 and M2 complete (2026-09-18).** RTL elaboration and synthesis
-both pass with zero errors and zero critical warnings, and every K2 timing
-constraint matches. 33,392 LUTs, 192/365 BRAM tiles. Not yet placed, routed
-or run on hardware.
+**Status: M0 and M2 complete (2026-09-18); the routed build does not close
+setup timing.** Elaboration, synthesis, routing, hold, pulse width and bus
+skew all pass. Setup fails at WNS -1.485 ns over 144 endpoints, every one of
+them intra-clock in MIG's 166.667 MHz `ui_clk`, because `framework_k2` ties
+`hr_clk` to it while upstream wrote that domain against HyperRAM's 100 MHz.
+84 of the 144 are in `sw_cartridge_wrapper`. See `K2/README.md` for the
+breakdown and the proposed fix. 30,454 LUTs, 192/365 BRAM tiles. Never run on
+hardware.
 
 ## The emulated machine
 
@@ -59,7 +63,10 @@ IEC devices (no connector), analog VGA and retro 15 kHz (HDMI only).
    its constraints out with a pointer to the milestone, and remove the matching
    `check_*.tcl` call from `build.tcl`. (Done for PS/2 until M4.)
 4. **Bitstream generation alone is not a passing build.** `build.tcl` gates on
-   setup/hold slack and bus skew; keep those gates.
+   setup/hold slack and bus skew; keep those gates. It wraps the whole build in
+   a `catch` and calls `exit 1`, because Vivado's batch mode otherwise exits 0
+   even when a sourced script raises -- a failing gate used to look like a pass
+   to any caller that checked only the exit code.
 5. **`C64MEGA65`'s relative ROM paths are load-bearing.** `c1541_multi.sv` and
    `c1581_multi.sv` open `../../C64_MiSTerMEGA65/rtl/iec_drive/*.mif.hex` from
    the synthesis run directory, which is why `create_project.tcl` symlinks the

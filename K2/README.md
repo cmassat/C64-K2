@@ -7,13 +7,53 @@ port of the same board.
 
 ## Status
 
-**Bring-up: M0 and M2 complete.** RTL elaboration and synthesis both pass with
-zero errors and zero critical warnings, and every K2 timing constraint matches
-(no "no pins matched"). Post-synthesis utilization is 33,392 LUTs (24.8%),
-29,155 FFs (10.8%) and **192/365 BRAM tiles (52.6%)** — far more headroom than
-AExp, whose 356/365 came from holding the Amiga's Chip/Slow RAM and Kickstart
-in BRAM. Nothing has been placed, routed or run on hardware yet.
-See [Milestones](#milestones).
+**Bring-up: M0 and M2 complete. The routed build does NOT close timing.**
+
+| Stage | Result |
+|---|---|
+| RTL elaboration | 0 errors, 0 critical warnings |
+| Synthesis | 0 errors, 0 critical warnings; every K2 constraint matched |
+| Routing | 54,468/54,468 nets routed, 0 routing errors |
+| Hold / pulse width | Pass (WHS +0.031 ns, WPWS +0.251 ns) |
+| Bus skew | Pass, 0 violations |
+| **Setup** | **FAIL: WNS -1.485 ns, 144 failing endpoints** |
+| Utilization | 30,454 LUTs (22.6%), 25,655 FFs (9.5%), 192/365 BRAM (52.6%), 73 DSPs |
+
+Nothing has been run on hardware. A bitstream exists but should not be trusted
+until setup timing closes.
+
+### The setup failure: a 100 MHz domain asked to run at 166.667 MHz
+
+Every failing endpoint is intra-clock in `clk_pll_i`, which is MIG's `ui_clk`
+(166.667 MHz, 6 ns). `framework_k2` ties the framework's `hr_clk` straight to
+it, exactly as AExp-K2 does. On the MEGA65 that same `hr_clk` is the **HyperRAM
+clock at 100 MHz (10 ns)**, so upstream logic in this domain was written
+against a 10 ns budget and is now being given 6 ns.
+
+AExp got away with it because the only core-side logic it put in `hr_clk` was
+the ADF track engine. C64MEGA65 puts its whole cartridge pipeline and the REU
+there, which is far deeper:
+
+| Failing endpoints | Owner |
+|---|---|
+| 84 | `CORE/vhdl/sw_cartridge_wrapper.vhd` (CRT loader / parser / cacher) |
+| 42 | MIG internal |
+| 16 | `M2M/vhdl/av_pipeline` (the ascal framebuffer side) |
+| 2 | `K2/vhdl/k2_avm_increase.vhd` |
+
+Worst path: `i_crt_parser/wide_readdata_reg[12]` to
+`i_crt_parser/avm_address_o_reg[2]/CE`, 7.212 ns of data path over 12 logic
+levels (6 CARRY4), against a 6 ns requirement. At the MEGA65's 10 ns it has
+~2.8 ns to spare.
+
+The preferred fix is to give the core its own 100 MHz Avalon domain and cross
+into MIG's 166.667 MHz domain inside the bridge, restoring upstream's timing
+assumptions. That is a K2-only change (`framework_k2` plus a CDC FIFO;
+`M2M/vhdl/axi_fifo_small.vhd` and `avm_fifo` already exist for this) and keeps
+`CORE/` and `M2M/` unmodified. Alternatives considered: reconfiguring MIG for a
+4:1 PHY ratio (`ui_clk` 83.33 MHz, but half the DDR3 bandwidth per clock and a
+change to the tuned `mig_a.prj`), or pipelining `crt_parser`, which would mean
+modifying upstream.
 
 ## Architecture
 
