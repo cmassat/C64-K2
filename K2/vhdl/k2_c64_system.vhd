@@ -199,8 +199,7 @@ begin
 
    i_framework : entity work.framework_k2
       generic map (
-         G_BOARD         => "K2_REVB0C",
-         G_MEM_CLK_SPEED => 166_666_667
+         G_BOARD => "K2_REVB0C"
       )
       port map (
          clk_i                   => clk_100_i,

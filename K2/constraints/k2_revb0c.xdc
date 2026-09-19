@@ -23,6 +23,11 @@ create_generated_clock -name mem_ref_clk \
 
 create_generated_clock -name qnice_clk \
    [get_pins i_system/i_framework/i_clk_m2m/i_clk_qnice/CLKOUT0]
+# The core-facing memory domain.  Same MMCM output the MEGA65 uses for its
+# HyperRAM clock; on K2 it feeds the Avalon side of the DDR3 path, which
+# crosses into MIG's ui_clk inside framework_k2's avm_fifo.
+create_generated_clock -name hr_clk \
+   [get_pins i_system/i_framework/i_clk_m2m/i_clk_qnice/CLKOUT1]
 create_generated_clock -name audio_clk \
    [get_pins i_system/i_framework/i_clk_m2m/i_clk_audio/CLKOUT0]
 create_generated_clock -name tmds_clk \
@@ -154,14 +159,22 @@ set_false_path -from [get_clocks hdmi_clk]  -to [get_clocks audio_clk]
 set_false_path -from [get_clocks audio_clk] -to [get_clocks hdmi_clk]
 set_false_path -from [get_clocks qnice_clk] -to [get_clocks hdmi_clk]
 
-# DDR3 UI is 166.667 MHz: bound the input LUTRAM CDC to one UI period.  The
-# HDMI-side double-buffer limit remains one 74.25 MHz period.
-set_max_delay -datapath_only 6.000 \
-   -from [get_pins -hierarchical -regexp {.*/i_ascal/i_dpram_reg.*/CLK}] \
-   -to   [get_cells -hierarchical -regexp {.*/i_ascal/avl_dr_reg\[[0-9]+\]}]
-set_max_delay -datapath_only 13.400 \
-   -from [get_pins -hierarchical -regexp {.*/i_ascal/o_dpram_reg.*/CLK}] \
-   -to   [get_cells -hierarchical -regexp {.*/i_ascal/o_dr_reg\[[0-9]+\]}]
+# AExp-K2 bounds the ascal ping-pong CDCs here with two set_max_delay
+# constraints on i_dpram_reg/avl_dr_reg and o_dpram_reg/o_dr_reg.  Those are
+# NOT portable to this fork and are deliberately absent.
+#
+# They only bind when ascal's ping-pong buffers are LUTRAM, which is true only
+# under AExp's "osm-scale" M2M patch (ram_style => "distributed" on i_dpram and
+# o_dpram, plus RAM_STYLE_SELECT in tdp_ram.vhd).  This fork uses upstream M2M,
+# where Vivado infers BRAM for those buffers, so no such cells exist and both
+# constraints matched nothing -- silently no-opping, exactly the failure mode
+# AGENTS.md rule 2 warns about.  Note these warnings appear in the IMPL log,
+# not the synthesis log, because the first read defers them as black boxes.
+#
+# Upstream covers this CDC with the ascal set_false_path block above, which is
+# what C64MEGA65 ships on the MEGA65 and what does bind here.  If the osm-scale
+# patch is ever ported (it saves 4 RAMB36s), restore both constraints and bound
+# the avl_ side by hr_clk's 10 ns period, not MIG's 6 ns.
 
 ################################################################################
 ## K2 RevB0C physical pins

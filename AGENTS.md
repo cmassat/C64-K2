@@ -17,14 +17,10 @@ Vivado 2026.1 is at `/mnt/e/2026.1/Vivado`. On this Fedora host it needs an
 ncurses-5 shim (`libncurses.so.5` -> `.so.6`) on `LD_LIBRARY_PATH`, or
 `ncurses-compat-libs` installed.
 
-**Status: M0 and M2 complete (2026-09-18); the routed build does not close
-setup timing.** Elaboration, synthesis, routing, hold, pulse width and bus
-skew all pass. Setup fails at WNS -1.485 ns over 144 endpoints, every one of
-them intra-clock in MIG's 166.667 MHz `ui_clk`, because `framework_k2` ties
-`hr_clk` to it while upstream wrote that domain against HyperRAM's 100 MHz.
-84 of the 144 are in `sw_cartridge_wrapper`. See `K2/README.md` for the
-breakdown and the proposed fix. 30,454 LUTs, 192/365 BRAM tiles. Never run on
-hardware.
+**Status: M0 and M2 complete (2026-09-18); the routed build closes timing.**
+Setup +0.593 ns, hold +0.010 ns, pulse width +0.251 ns, zero failing endpoints,
+zero routing errors, zero bus-skew violations, every K2 constraint binding.
+30,619 LUTs, 192/365 BRAM tiles. **Never run on hardware.**
 
 ## The emulated machine
 
@@ -52,7 +48,10 @@ IEC devices (no connector), analog VGA and retro 15 kHz (HDMI only).
    The one sanctioned exception is `CORE/vhdl/config.vhd`, which is never
    edited but *rewritten at build time* into `K2/build/generated/config.vhd`
    by `K2/scripts/config_variant.tcl`.
-2. **Grep every synthesis log for "no pins matched".** A missed XDC object
+2. **Grep the IMPLEMENTATION log for "no pins matched", not just synthesis.**
+   The first constraint read happens with unresolved black boxes, so Vivado
+   defers the failures; they surface in `impl_1/runme.log`. Two dead ascal
+   constraints hid in exactly that gap. A missed XDC object
    silently no-ops static timing analysis. The core clock constraints
    (`k2_revb0c.xdc`: `set_case_analysis 0` on
    `i_system/i_core/hr_core_speed_reg[0]/Q` and `main_clk` generated from
@@ -87,10 +86,16 @@ IEC devices (no connector), analog VGA and retro 15 kHz (HDMI only).
   `CORE/vhdl/clk.vhd` takes the 100 MHz and makes the C64 clock: `i_clk_c64_orig`
   = 31.5278 MHz (50.124 Hz) and `i_clk_c64_slow` = 31.4490 MHz (49.999 Hz,
   HDMI flicker-free), selected by a `BUFGMUX_CTRL`.
-- **Memory.** `hr_core_*` Avalon (16-bit data, 32-bit address) →
-  `k2_avm_increase` (16→128 bit, 8-deep LUTRAM FIFO) → `avm_mig_bridge`
-  (128-bit Avalon → MIG 64-bit app, two beats per BL8, 7 read credits) → DDR3.
-  `hr_clk` is MIG's `ui_clk`; `hr_count_long/short` are tied to zero.
+- **Memory: two clock domains, and the split is load-bearing.**
+  `hr_core_*` Avalon (16-bit) → `avm_arbit_general` → `avm_fifo` **at 100 MHz**
+  (`clk_m2m`'s `hr_clk_o`, the MEGA65's HyperRAM clock) ==CDC==>
+  `k2_avm_increase` (16→128 bit) → `avm_mig_bridge` → DDR3 **at MIG's
+  166.667 MHz `ui_clk`**. `hr_count_long/short` are tied to zero.
+  Do NOT collapse this back onto `ui_clk` the way AExp-K2 does: upstream wrote
+  the `hr_clk` domain against 10 ns, and at 6 ns it misses setup by 1.485 ns
+  (84 endpoints in `sw_cartridge_wrapper` alone). The CDC must stay on the
+  16-bit side, because `k2_avm_increase` and `avm_mig_bridge` are coupled by a
+  read-credit loop that must not cross clock domains.
 - **Keyboard.** `k2_keyboard_matrix` scans the optical matrix and publishes an
   80-bit low-active M2M logical-key bitmap; `k2_m2m_keyb` turns that into
   `(key_num, pressed_n)` plus `qnice_keys_n`. The matrix is already

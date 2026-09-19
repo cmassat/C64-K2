@@ -7,53 +7,59 @@ port of the same board.
 
 ## Status
 
-**Bring-up: M0 and M2 complete. The routed build does NOT close timing.**
+**Bring-up: M0 and M2 complete; the routed build closes timing.**
 
 | Stage | Result |
 |---|---|
 | RTL elaboration | 0 errors, 0 critical warnings |
-| Synthesis | 0 errors, 0 critical warnings; every K2 constraint matched |
-| Routing | 54,468/54,468 nets routed, 0 routing errors |
-| Hold / pulse width | Pass (WHS +0.031 ns, WPWS +0.251 ns) |
-| Bus skew | Pass, 0 violations |
-| **Setup** | **FAIL: WNS -1.485 ns, 144 failing endpoints** |
-| Utilization | 30,454 LUTs (22.6%), 25,655 FFs (9.5%), 192/365 BRAM (52.6%), 73 DSPs |
+| Synthesis | 0 errors, 0 critical warnings |
+| Routing | 54,902/54,902 nets routed, 0 routing errors |
+| Setup | **WNS +0.593 ns**, 0 failing endpoints |
+| Hold | WHS +0.010 ns, 0 failing endpoints |
+| Pulse width | WPWS +0.251 ns, 0 failing endpoints |
+| Bus skew | 0 violations |
+| Constraints | every K2 constraint binds (checked in the **impl** log) |
+| Sign-off checks | LED, LCD and RTC pass |
+| Utilization | 30,619 LUTs (22.8%), 25,978 FFs (9.7%), 192/365 BRAM (52.6%), 73 DSPs |
 
-Nothing has been run on hardware. A bitstream exists but should not be trusted
-until setup timing closes.
+**Never run on hardware.** A bitstream exists and timing is closed, but no part
+of this has been observed working on a board.
 
-### The setup failure: a 100 MHz domain asked to run at 166.667 MHz
+Critical path is now intra-`clk_pll_i` (MIG's 166.667 MHz ui_clk) at +0.593 ns;
+`hr_clk` (100 MHz, 5,798 endpoints) sits at +1.525 ns.
 
-Every failing endpoint is intra-clock in `clk_pll_i`, which is MIG's `ui_clk`
-(166.667 MHz, 6 ns). `framework_k2` ties the framework's `hr_clk` straight to
-it, exactly as AExp-K2 does. On the MEGA65 that same `hr_clk` is the **HyperRAM
-clock at 100 MHz (10 ns)**, so upstream logic in this domain was written
-against a 10 ns budget and is now being given 6 ns.
+### Why the memory path has two clock domains
 
-AExp got away with it because the only core-side logic it put in `hr_clk` was
-the ADF track engine. C64MEGA65 puts its whole cartridge pipeline and the REU
-there, which is far deeper:
+The first routed build failed setup badly: WNS -1.485 ns over 144 endpoints, all
+intra-clock in MIG's `ui_clk`, 84 of them inside `sw_cartridge_wrapper`. The
+cause was that `framework_k2` tied the framework's `hr_clk` straight to `ui_clk`
+at 166.667 MHz, as AExp-K2 does. On the MEGA65 `hr_clk` is the HyperRAM clock at
+**100 MHz**, and everything upstream puts in that domain -- the ascal
+framebuffer side of `av_pipeline`, plus whatever the core hangs off `hr_core_*`,
+which for C64MEGA65 is the REU and the entire CRT cartridge pipeline -- was
+written against a 10 ns budget. AExp only got away with 6 ns because its ADF
+track engine was the sole core-side logic there.
 
-| Failing endpoints | Owner |
-|---|---|
-| 84 | `CORE/vhdl/sw_cartridge_wrapper.vhd` (CRT loader / parser / cacher) |
-| 42 | MIG internal |
-| 16 | `M2M/vhdl/av_pipeline` (the ascal framebuffer side) |
-| 2 | `K2/vhdl/k2_avm_increase.vhd` |
+So `hr_clk` now comes from `clk_m2m`'s 100 MHz `hr_clk_o`, the same MMCM output
+the MEGA65 uses, and the crossing into `ui_clk` happens inside the memory path:
 
-Worst path: `i_crt_parser/wide_readdata_reg[12]` to
-`i_crt_parser/avm_address_o_reg[2]/CE`, 7.212 ns of data path over 12 logic
-levels (6 CARRY4), against a 6 ns requirement. At the MEGA65's 10 ns it has
-~2.8 ns to spare.
+```
+core / ascal / QNICE -> avm_arbit_general -> avm_fifo   | 100 MHz  (hr_clk)
+                                             ==CDC==
+                        k2_avm_increase -> avm_mig_bridge -> MIG | 166.667 MHz
+```
 
-The preferred fix is to give the core its own 100 MHz Avalon domain and cross
-into MIG's 166.667 MHz domain inside the bridge, restoring upstream's timing
-assumptions. That is a K2-only change (`framework_k2` plus a CDC FIFO;
-`M2M/vhdl/axi_fifo_small.vhd` and `avm_fifo` already exist for this) and keeps
-`CORE/` and `M2M/` unmodified. Alternatives considered: reconfiguring MIG for a
-4:1 PHY ratio (`ui_clk` 83.33 MHz, but half the DDR3 bandwidth per clock and a
-change to the tuned `mig_a.prj`), or pipelining `crt_parser`, which would mean
-modifying upstream.
+The CDC sits on the **16-bit side**, before the width converter, because
+`k2_avm_increase` and `avm_mig_bridge` are coupled by the read-credit loop
+(7 credits, at most one read per 8 UI cycles); splitting that across a clock
+domain crossing would break its latency contract. `avm_fifo` is built on
+`xpm_fifo_axis`, so the crossing carries Xilinx's own CDC constraints, and it is
+the same component C64MEGA65 already uses for the REU's `main_clk` crossing.
+
+Cost: +165 LUTs, no extra BRAM. Consequence to remember: the Avalon side now
+runs at 100 MHz rather than 166.667, so peak 16-bit transaction rate ahead of
+the width converter is a third lower. Irrelevant for the scaler, but the REU and
+CRT cacher are the latency-sensitive consumers, so **measure M6, do not assume**.
 
 ## Architecture
 

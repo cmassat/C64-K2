@@ -23,8 +23,7 @@ use xpm.vcomponents.all;
 
 entity framework_k2 is
 generic (
-   G_BOARD         : string;
-   G_MEM_CLK_SPEED : natural := 166_666_667
+   G_BOARD         : string
 );
 port (
    clk_i                   : in    std_logic;                  -- 100 MHz clock
@@ -275,10 +274,11 @@ signal video_mode : video_modes_t;
 ---------------------------------------------------------------------------------------------
 
 signal qnice_clk              : std_logic;               -- QNICE main clock @ 50 MHz
-signal hr_clk                 : std_logic;               -- K2 MIG application clock
-signal hr_clk_unused          : std_logic;
+signal hr_clk                 : std_logic;               -- Core-facing memory clock @ 100 MHz
 signal hr_clk_del_unused      : std_logic;
 signal hr_delay_refclk_unused : std_logic;
+signal mem_rst                : std_logic;               -- MIG ui_clk domain reset
+signal hr_calib_done          : std_logic;               -- mem_calib_done_i, synced to hr_clk
 signal audio_clk              : std_logic;               -- Audio clock @ 60 MHz
 signal tmds_clk               : std_logic;               -- HDMI pixel clock at 5x speed for TMDS @ 371.25 MHz
 signal hdmi_clk               : std_logic;               -- HDMI pixel clock at normal speed @ 74.25 MHz
@@ -286,6 +286,7 @@ signal sys_pps                : std_logic;               -- One pulse per second
 
 signal qnice_rst              : std_logic;
 signal hr_rst                 : std_logic;
+signal hr_rst_clk_m2m         : std_logic;
 signal audio_rst              : std_logic;
 signal hdmi_rst               : std_logic;
 
@@ -434,6 +435,18 @@ signal hr_count_long          : unsigned(31 downto 0);
 signal hr_count_short         : unsigned(31 downto 0);
 
 -- 128-bit, wide-word Avalon interface to the native MIG bridge
+-- 16-bit Avalon between the CDC FIFO and the width converter, in MIG's
+-- ui_clk domain.
+signal memc_write              : std_logic;
+signal memc_read               : std_logic;
+signal memc_address            : std_logic_vector(31 downto 0);
+signal memc_writedata          : std_logic_vector(15 downto 0);
+signal memc_byteenable         : std_logic_vector( 1 downto 0);
+signal memc_burstcount         : std_logic_vector( 7 downto 0);
+signal memc_readdata           : std_logic_vector(15 downto 0);
+signal memc_readdatavalid      : std_logic;
+signal memc_waitrequest        : std_logic;
+
 signal mem_write               : std_logic;
 signal mem_read                : std_logic;
 signal mem_address             : std_logic_vector(28 downto 0);
@@ -450,10 +463,36 @@ signal sda_out                : std_logic_vector(7 downto 0);
 
 begin
 
-   hr_clk          <= mem_clk_i;
-   hr_rst          <= mem_rst_i or not mem_calib_done_i;
+   -- The core-facing memory domain runs at 100 MHz, NOT at MIG's 166.667 MHz
+   -- ui_clk.  On the MEGA65 this is the HyperRAM clock at 100 MHz, and every
+   -- upstream block that lives here -- the ascal framebuffer side of
+   -- av_pipeline, and whatever the core hangs off hr_core_* (for C64MEGA65
+   -- that is the REU and the whole CRT cartridge pipeline) -- was written
+   -- against that 10 ns budget.  Driving it from ui_clk instead, as AExp-K2
+   -- does, asks the same logic to close in 6 ns; it does not (WNS -1.485 ns,
+   -- 144 endpoints, 84 of them in sw_cartridge_wrapper).  AExp only got away
+   -- with it because its ADF engine was the sole core-side logic here.
+   --
+   -- So keep clk_m2m's 100 MHz hr_clk and cross into ui_clk inside the memory
+   -- path, below, leaving only k2_avm_increase and avm_mig_bridge at 166.667.
+   hr_rst          <= hr_rst_clk_m2m or not hr_calib_done;
+   mem_rst         <= mem_rst_i or not mem_calib_done_i;
    hr_count_long   <= (others => '0');
    hr_count_short  <= (others => '0');
+
+   -- DDR3 calibration is reported in the MIG domain; hold the core-facing
+   -- domain in reset until it has crossed into hr_clk.
+   i_calib_cdc : xpm_cdc_single
+      generic map (
+         DEST_SYNC_FF   => 3,
+         SRC_INPUT_REG  => 0
+      )
+      port map (
+         src_clk  => mem_clk_i,
+         src_in   => mem_calib_done_i,
+         dest_clk => hr_clk,
+         dest_out => hr_calib_done
+      ); -- i_calib_cdc
 
    ---------------------------------------------------------------------------------------------------------------
    -- Generate clocks and reset signals
@@ -466,10 +505,10 @@ begin
          core_rstn_i       => reset_core_n,       -- reset only the core (means the HyperRAM needs to be reset, too)
          qnice_clk_o       => qnice_clk,
          qnice_rst_o       => qnice_rst,
-         hr_clk_o          => hr_clk_unused,
+         hr_clk_o          => hr_clk,
          hr_clk_del_o      => hr_clk_del_unused,
          hr_delay_refclk_o => hr_delay_refclk_unused,
-         hr_rst_o          => open,
+         hr_rst_o          => hr_rst_clk_m2m,
          audio_clk_o       => audio_clk,
          audio_rst_o       => audio_rst,
          sys_pps_o         => sys_pps
@@ -697,7 +736,7 @@ begin
    i_avm_arbit_general : entity work.avm_arbit_general
       generic map (
          G_NUM_SLAVES   => 3,
-         G_FREQ_HZ      => G_MEM_CLK_SPEED,
+         G_FREQ_HZ      => BOARD_CLK_SPEED,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
       )
@@ -978,6 +1017,44 @@ begin
    -- K2 DDR3 backend
    ---------------------------------------------------------------------------------------------------------------
 
+   -- Clock domain crossing: the core-facing 100 MHz Avalon domain into MIG's
+   -- 166.667 MHz ui_clk.  It sits here, on the 16-bit side, rather than after
+   -- the width converter, because k2_avm_increase and avm_mig_bridge are
+   -- coupled by the read-credit loop (7 credits, at most one read per 8 UI
+   -- cycles) and splitting that across a CDC would break its latency contract.
+   i_mem_cdc : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => hr_clk,
+         s_rst_i               => hr_rst,
+         s_avm_waitrequest_o   => hr_waitrequest,
+         s_avm_write_i         => hr_write,
+         s_avm_read_i          => hr_read,
+         s_avm_address_i       => hr_address,
+         s_avm_writedata_i     => hr_writedata,
+         s_avm_byteenable_i    => hr_byteenable,
+         s_avm_burstcount_i    => hr_burstcount,
+         s_avm_readdata_o      => hr_readdata,
+         s_avm_readdatavalid_o => hr_readdatavalid,
+         m_clk_i               => mem_clk_i,
+         m_rst_i               => mem_rst,
+         m_avm_waitrequest_i   => memc_waitrequest,
+         m_avm_write_o         => memc_write,
+         m_avm_read_o          => memc_read,
+         m_avm_address_o       => memc_address,
+         m_avm_writedata_o     => memc_writedata,
+         m_avm_byteenable_o    => memc_byteenable,
+         m_avm_burstcount_o    => memc_burstcount,
+         m_avm_readdata_i      => memc_readdata,
+         m_avm_readdatavalid_i => memc_readdatavalid
+      ); -- i_mem_cdc
+
    i_mem_width : entity work.k2_avm_increase
       generic map (
          G_SLAVE_ADDRESS_SIZE  => 32,
@@ -987,17 +1064,17 @@ begin
          G_READ_FIFO_DEPTH     => 8
       )
       port map (
-         clk_i                 => hr_clk,
-         rst_i                 => hr_rst,
-         s_avm_write_i         => hr_write,
-         s_avm_read_i          => hr_read,
-         s_avm_address_i       => hr_address,
-         s_avm_writedata_i     => hr_writedata,
-         s_avm_byteenable_i    => hr_byteenable,
-         s_avm_burstcount_i    => hr_burstcount,
-         s_avm_readdata_o      => hr_readdata,
-         s_avm_readdatavalid_o => hr_readdatavalid,
-         s_avm_waitrequest_o   => hr_waitrequest,
+         clk_i                 => mem_clk_i,
+         rst_i                 => mem_rst,
+         s_avm_write_i         => memc_write,
+         s_avm_read_i          => memc_read,
+         s_avm_address_i       => memc_address,
+         s_avm_writedata_i     => memc_writedata,
+         s_avm_byteenable_i    => memc_byteenable,
+         s_avm_burstcount_i    => memc_burstcount,
+         s_avm_readdata_o      => memc_readdata,
+         s_avm_readdatavalid_o => memc_readdatavalid,
+         s_avm_waitrequest_o   => memc_waitrequest,
          m_avm_write_o         => mem_write,
          m_avm_read_o          => mem_read,
          m_avm_address_o       => mem_address,
@@ -1017,8 +1094,8 @@ begin
          G_READ_CREDITS     => 7
       )
       port map (
-         clk_i                 => hr_clk,
-         rst_i                 => hr_rst,
+         clk_i                 => mem_clk_i,
+         rst_i                 => mem_rst,
          calib_done_i          => mem_calib_done_i,
          s_avm_write_i         => mem_write,
          s_avm_read_i          => mem_read,
