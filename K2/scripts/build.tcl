@@ -87,6 +87,17 @@ if {[catch {
       if {[string first "Slack (VIOLATED)" $bus_skew_text] >= 0} {
          error "K2 implementation fails a bus-skew constraint"
       }
+
+      # Package the installable core.  The K2 is not programmed over JTAG in
+      # normal use: the RP2040 FPGA manager reads CNTX<n>/<name>.bin or .gz
+      # from its own SD card, or a context's replaceable flash slot.  It
+      # requires the RAW bitstream at exactly 9730652 bytes, which is why
+      # BITSTREAM.GENERAL.COMPRESS is FALSE in k2_revb0c.xdc.
+      set core_bit [file join $project_dir C64-K2-B0C.runs impl_1 \
+                       k2_revb0c_top.bit]
+      set core_bin [file join $build_dir c64_k2.bin]
+      puts [exec python3 [file join $script_dir make_core.py] \
+               $core_bit -o $core_bin]
    }
 
    close_project

@@ -365,7 +365,11 @@ set_property -dict {PACKAGE_PIN AB4 IOSTANDARD LVCMOS33} [get_ports LCD_SCLK_o]
 
 set_property CONFIG_VOLTAGE                  3.3   [current_design]
 set_property CFGBVS                          VCCO  [current_design]
-set_property BITSTREAM.GENERAL.COMPRESS      TRUE  [current_design]
+# MUST stay FALSE, unlike AExp-K2.  The RP2040 FPGA manager checks the
+# decompressed image against an exact FPGA_SIZE of 9730652 bytes
+# (fpga_mgr.cpp) and rejects anything else, so a bitstream-compressed image
+# (~5.2 MB) will not boot.  K2/scripts/make_core.py enforces the same size.
+set_property BITSTREAM.GENERAL.COMPRESS      FALSE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE     66    [current_design]
 set_property CONFIG_MODE                     SPIx4 [current_design]
 set_property BITSTREAM.CONFIG.SPI_32BIT_ADDR YES   [current_design]

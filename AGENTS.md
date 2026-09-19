@@ -108,6 +108,24 @@ IEC devices (no connector), analog VGA and retro 15 kHz (HDMI only).
 - **Video.** The whole M2M `av_pipeline`/ascal chain is instantiated unmodified
   inside `framework_k2`; only HDMI is physically wired.
 
+## Installing a core (NOT JTAG)
+
+The RP2040 FPGA manager programs the Artix from `CNTX1..CNTX4/<name>.bin|.gz`
+on its own SD card, or from a per-context replaceable flash slot managed by
+`k2coremgr.pgz`. `fpga_mgr.cpp` enforces `FPGA_SIZE` = **9730652** bytes on the
+decompressed image, so:
+
+- `BITSTREAM.GENERAL.COMPRESS` **must stay FALSE** in `k2_revb0c.xdc`
+  (AExp-K2 sets it TRUE; that image is ~5.2 MB and gets rejected);
+- the image is the RAW bitstream, not a `.bit` and not `write_cfgmem` output;
+- `K2/scripts/make_core.py` packages and validates it, and `build.tcl` runs it
+  after the timing gates. It is pure Python -- no Vivado needed to repackage.
+
+Reference material lives outside this repo at
+`/mnt/Retro/WildBits/Firmware/fpga-manager` (`README.md`, `fpga_mgr.cpp`,
+`k2/README.md`), and `/home/bill/CFP95600C.bin` is a known-good context-1 core
+to compare against.
+
 ## Build and verification
 
 ```sh

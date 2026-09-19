@@ -168,6 +168,50 @@ cartridge path as latency-sensitive against HyperRAM, and the K2's DDR3 bridge
 has different latency characteristics (BL8, 7 read credits, at most one read
 per 8 UI cycles).
 
+## Installing the core
+
+The K2 is not programmed over JTAG in normal use. The RP2040 on the board is an
+FPGA boot supervisor (`Firmware/fpga-manager`): it picks a core for the context
+selected by the physical DIP switches, programs the Artix, and then serves the
+running K2 through a supervisor mailbox. Cores live either on the RP2040's own
+SD card under `CNTX1/` .. `CNTX4/`, or in a per-context replaceable flash slot.
+`k2coremgr.pgz`, run on the K2, browses, copies, installs and selects them.
+
+The build produces both accepted forms in `K2/build/`:
+
+```text
+c64_k2.bin      9,730,652 bytes   raw bitstream
+c64_k2.bin.gz   ~1.2 MB           gzip of the same image
+```
+
+Copy either into a `CNTX<n>/` directory on the RP2040 SD card, then set the DIP
+switches to that context and restart. Or copy it to the K2's own SD card and use
+`k2coremgr.pgz` to install it into the context's flash slot.
+
+### Format requirements, and why COMPRESS must be FALSE
+
+`fpga_mgr.cpp` defines `FPGA_SIZE` as **9730652** and rejects any image whose
+decompressed length differs. So the core must be the **raw** configuration
+bitstream -- no `.bit` ASCII header, no `write_cfgmem` flash padding -- and
+`BITSTREAM.GENERAL.COMPRESS` **must be FALSE** in `k2_revb0c.xdc`. AExp-K2 sets
+it TRUE, which yields a ~5.2 MB image that this loader will not boot. A `.gz` is
+validated by gzip magic, method, reserved flag bits, CRC-32 and that same
+decompressed size.
+
+`K2/scripts/make_core.py` does the packaging and enforces all of it. It is pure
+Python, so a core can be repackaged without Vivado:
+
+```sh
+python3 K2/scripts/make_core.py path/to/k2_revb0c_top.bit -o out/c64_k2.bin
+```
+
+It parses the `.bit` header, checks the size, checks that everything before the
+bus-width detect pattern is `0xFF`, and checks that the sync word follows the
+preamble. It deliberately does **not** pin absolute offsets: the leading dummy
+run varies with the `BITSTREAM.CONFIG` SPI settings (our image has 288 bytes,
+the reference K2 core has 32) and Vivado compensates with fewer trailing NOOP
+words, so the total stays at `FPGA_SIZE` and no configuration data moves.
+
 ## Regression tests
 
 Ported from AExp-K2 and retargeted. All of these pass today:
@@ -232,8 +276,10 @@ Deliberately left behind; the sources remain in the AExp-K2 checkout:
 
 ## Board diagnostics
 
-- FT4232 channel A: JTAG. Channel C (`...-if02-port0` in
-  `/dev/serial/by-id/`): QNICE UART, 115200 baud, 8-N-1, no flow control.
+- FT4232 channel A is JTAG, useful for a volatile load during bring-up, but
+  **not** how a core is normally installed -- see "Installing the core".
+  Channel C (`...-if02-port0` in `/dev/serial/by-id/`): QNICE UART,
+  115200 baud, 8-N-1, no flow control.
 - `STAT_LED0`: DDR3 calibration complete. `STAT_LED1`: reset asserted.
 - If a fatal error ends at `QMON>`, the Shell and on-screen menu are no longer
   running.
