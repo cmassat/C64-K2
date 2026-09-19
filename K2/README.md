@@ -22,8 +22,13 @@ port of the same board.
 | Sign-off checks | LED, LCD and RTC pass |
 | Utilization | 30,619 LUTs (22.8%), 25,978 FFs (9.7%), 192/365 BRAM (52.6%), 73 DSPs |
 
-**Never run on hardware.** A bitstream exists and timing is closed, but no part
-of this has been observed working on a board.
+**First hardware bring-up 2026-09-19.** The core configures and runs on a real
+RevB0C board. Verified on hardware: `DONE` high, end-of-startup reached, all
+PLLs locked, no CRC/IDCODE/bad-packet errors, DDR3 calibrated, and -- by JTAG
+readback diffing -- QNICE executing, the SD card being read, the 6510 writing
+C64 RAM, the 1541 running, ascal and the TMDS encoder clocked and moving data.
+**No HDMI picture yet**, so M1 remains open; the same monitor, cable and input
+display the AExp-K2 Amiga core at 720p50 correctly. See [DIAGNOSTICS.md](DIAGNOSTICS.md).
 
 Critical path is now intra-`clk_pll_i` (MIG's 166.667 MHz ui_clk) at +0.593 ns;
 `hr_clk` (100 MHz, 5,798 endpoints) sits at +1.525 ns.
@@ -156,7 +161,7 @@ static timing analysis.
 | # | Scope | Status |
 |---|---|---|
 | M0 | Repo, board shell, project creation, elaboration | Done |
-| M1 | C64 BASIC boot on HDMI | Next (needs hardware) |
+| M1 | C64 BASIC boot on HDMI | **In progress** -- core runs on hardware, no HDMI output yet |
 | M2 | Optical keyboard, RESTORE to the NMI, C= menu chord | Done |
 | M3 | D64 / 1541 via vdrives and the file browser | Planned |
 | M4 | PS/2 mouse as a 1351 (POT values, not quadrature) | Planned |

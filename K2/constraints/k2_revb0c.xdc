@@ -372,5 +372,15 @@ set_property CFGBVS                          VCCO  [current_design]
 set_property BITSTREAM.GENERAL.COMPRESS      FALSE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE     66    [current_design]
 set_property CONFIG_MODE                     SPIx4 [current_design]
+# MUST stay YES.  Hardware-verified 2026-09-19: rebuilding this exact routed
+# checkpoint with SPI_32BIT_ADDR NO moves the preamble from offset 288 to 32
+# and makes the first 48 bytes match the vendor cores -- and that image does
+# NOT configure the FPGA on a RevB0C board, while the offset-288 image does.
+# The FDRI payloads of the two are byte-identical (sha256 4a6cc171...), so the
+# difference is purely the configuration preamble.  This contradicts AExp-K2's
+# doc/developers/k2-build-log.md, which concluded the setting was irrelevant
+# because the RP2040 loader only checks total size; that reasoning covers the
+# loader, not the FPGA's own configuration engine.  Do not "fix" this toward
+# vendor convention.
 set_property BITSTREAM.CONFIG.SPI_32BIT_ADDR YES   [current_design]
 set_property BITSTREAM.CONFIG.SPI_BUSWIDTH   4     [current_design]

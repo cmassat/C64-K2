@@ -20,7 +20,13 @@ ncurses-5 shim (`libncurses.so.5` -> `.so.6`) on `LD_LIBRARY_PATH`, or
 **Status: M0 and M2 complete (2026-09-18); the routed build closes timing.**
 Setup +0.593 ns, hold +0.010 ns, pulse width +0.251 ns, zero failing endpoints,
 zero routing errors, zero bus-skew violations, every K2 constraint binding.
-30,619 LUTs, 192/365 BRAM tiles. **Never run on hardware.**
+30,619 LUTs, 192/365 BRAM tiles.
+
+**First hardware bring-up 2026-09-19.** The core configures and runs on a
+RevB0C board: `DONE` high, all PLLs locked, no CRC/IDCODE/packet errors, DDR3
+calibrated, and JTAG readback shows QNICE executing, the SD card being read,
+the 6510 writing RAM and the 1541 running. **There is still no HDMI picture**,
+so M1 is not complete. See `K2/DIAGNOSTICS.md`.
 
 ## The emulated machine
 
