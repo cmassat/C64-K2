@@ -429,6 +429,9 @@ signal hr_burstcount          : std_logic_vector( 7 downto 0);
 signal hr_readdata            : std_logic_vector(15 downto 0);
 signal hr_readdatavalid       : std_logic;
 signal hr_waitrequest         : std_logic;
+signal hr_cdc_read            : std_logic;
+signal hr_cdc_write           : std_logic;
+signal hr_cdc_waitrequest     : std_logic;
 
 -- Statistics
 signal hr_count_long          : unsigned(31 downto 0);
@@ -1022,10 +1025,34 @@ begin
    -- the width converter, because k2_avm_increase and avm_mig_bridge are
    -- coupled by the read-credit loop (7 credits, at most one read per 8 UI
    -- cycles) and splitting that across a CDC would break its latency contract.
+   --
+   -- The read FIFO must hold both 64-word responses that ascal may have in
+   -- flight.  MIG returns those words at 166.667 MHz while the 100 MHz side
+   -- drains them more slowly, and avm_fifo intentionally has no response-side
+   -- backpressure.  The original 16-word depth risks dropping burst data.
+   -- Increasing this depth alone did not resolve the hardware black screen;
+   -- the scaler stall remains under investigation.
+   -- avm_arbit tracks only the current burst, not a queue of read owners.
+   -- The command FIFO must not acknowledge a later command while a read is
+   -- still returning. Preserve the blocking contract of the original memory.
+   i_mem_read_guard : entity work.k2_avm_read_guard
+      port map (
+         clk_i                => hr_clk,
+         rst_i                => hr_rst,
+         s_read_i             => hr_read,
+         s_write_i            => hr_write,
+         s_burstcount_i       => hr_burstcount,
+         s_waitrequest_o      => hr_waitrequest,
+         m_read_o             => hr_cdc_read,
+         m_write_o            => hr_cdc_write,
+         m_waitrequest_i      => hr_cdc_waitrequest,
+         readdatavalid_i      => hr_readdatavalid
+      );
+
    i_mem_cdc : entity work.avm_fifo
       generic map (
          G_WR_DEPTH     => 16,
-         G_RD_DEPTH     => 16,
+         G_RD_DEPTH     => 128,
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
@@ -1033,9 +1060,9 @@ begin
       port map (
          s_clk_i               => hr_clk,
          s_rst_i               => hr_rst,
-         s_avm_waitrequest_o   => hr_waitrequest,
-         s_avm_write_i         => hr_write,
-         s_avm_read_i          => hr_read,
+         s_avm_waitrequest_o   => hr_cdc_waitrequest,
+         s_avm_write_i         => hr_cdc_write,
+         s_avm_read_i          => hr_cdc_read,
          s_avm_address_i       => hr_address,
          s_avm_writedata_i     => hr_writedata,
          s_avm_byteenable_i    => hr_byteenable,

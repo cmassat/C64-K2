@@ -26,7 +26,7 @@ if {[catch {
    source [file join $script_dir config_variant.tcl]
    k2_use_config_variant $repo_dir
    # Upgrade an existing project without regenerating its MIG IP.
-   foreach relative_name {K2/vhdl/k2_ps2_mouse.vhd K2/vhdl/k2_status_leds.vhd K2/vhdl/k2_load_monitor.vhd K2/vhdl/k2_rtc.vhd} {
+   foreach relative_name {K2/vhdl/k2_ps2_mouse.vhd K2/vhdl/k2_status_leds.vhd K2/vhdl/k2_load_monitor.vhd K2/vhdl/k2_rtc.vhd K2/vhdl/k2_avm_read_guard.vhd} {
       set input_file [file join $repo_dir $relative_name]
       if {![llength [get_files -quiet $input_file]]} { add_files -norecurse $input_file }
       set_property FILE_TYPE {VHDL 2008} [get_files $input_file]

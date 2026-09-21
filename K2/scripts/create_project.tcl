@@ -82,6 +82,7 @@ set k2_vhdl [list \
    [file join $repo_dir K2 vhdl k2_load_monitor.vhd] \
    [file join $repo_dir K2 vhdl k2_rtc.vhd] \
    [file join $repo_dir K2 vhdl k2_avm_increase.vhd] \
+   [file join $repo_dir K2 vhdl k2_avm_read_guard.vhd] \
    [file join $repo_dir K2 vhdl avm_mig_bridge.vhd] \
    [file join $repo_dir K2 vhdl framework_k2.vhd] \
    [file join $repo_dir K2 vhdl k2_c64_system.vhd] \

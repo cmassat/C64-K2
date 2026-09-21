@@ -22,3 +22,52 @@ M2M/rom/*.lis
 M2M/rom/*.out
 M2M/rom/*.rom
 M2M/video_filters/*.out
+
+# ---------------------------------------------------------------------------
+# K2 port -- build and tool artifacts
+# ---------------------------------------------------------------------------
+
+# Vivado / Xilinx working files, anywhere in the tree.  Vivado drops these in
+# whatever directory it was launched from, which is usually the repo root.
+.Xil/
+*.jou
+*.log
+*.str
+*.pb
+*.rpx
+*.wdb
+*.vdi
+*.wcfg
+vivado_pid*
+clockInfo.txt
+usage_statistics_webtalk.*
+webtalk*.*
+hs_err_pid*.log
+
+# xsim / xvhdl / xelab simulation scratch, e.g. from test_memory_order.sh
+xsim.dir/
+
+# Stray build output at the repo root.  These are NOT blanket patterns on
+# purpose: bin/Version */*.bit and *.cor are tracked upstream release binaries,
+# and a global *.bit would hide new ones on the next upstream merge.
+# K2 build products live in K2/build/, which K2/.gitignore already ignores.
+/*.bit
+/*.bin
+/*.dcp
+/*.ltx
+
+# Python
+__pycache__/
+*.py[cod]
+
+# ---------------------------------------------------------------------------
+# Release binaries
+# ---------------------------------------------------------------------------
+# Core images are distributed as GitHub Release assets, never committed: they
+# are ~20 MB per build and would bloat every clone forever.  K2/release/ keeps
+# the README and SHA256SUMS in git so a release stays documented and
+# reproducible; the images themselves live only in the Release.
+K2/release/*.bin
+K2/release/*.gz
+K2/release/*.bit
+

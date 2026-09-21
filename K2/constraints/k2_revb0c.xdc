@@ -372,15 +372,20 @@ set_property CFGBVS                          VCCO  [current_design]
 set_property BITSTREAM.GENERAL.COMPRESS      FALSE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE     66    [current_design]
 set_property CONFIG_MODE                     SPIx4 [current_design]
-# MUST stay YES.  Hardware-verified 2026-09-19: rebuilding this exact routed
-# checkpoint with SPI_32BIT_ADDR NO moves the preamble from offset 288 to 32
-# and makes the first 48 bytes match the vendor cores -- and that image does
-# NOT configure the FPGA on a RevB0C board, while the offset-288 image does.
-# The FDRI payloads of the two are byte-identical (sha256 4a6cc171...), so the
-# difference is purely the configuration preamble.  This contradicts AExp-K2's
-# doc/developers/k2-build-log.md, which concluded the setting was irrelevant
-# because the RP2040 loader only checks total size; that reasoning covers the
-# loader, not the FPGA's own configuration engine.  Do not "fix" this toward
-# vendor convention.
-set_property BITSTREAM.CONFIG.SPI_32BIT_ADDR YES   [current_design]
+# Vendor convention, matching Firmware/CNTX*/*.bin (foenix138.bin et al):
+# 32 bytes of 0xFF dummy, bus-width detect at 32, sync word AA995566 at 48.
+#
+# History, because this flip-flopped once.  On 2026-09-19 a note here said this
+# MUST stay YES, claiming the NO variant did not configure a RevB0C.  That test
+# was made while the core painted a black screen from ANY image, so "did not
+# configure" was indistinguishable from "configured and showed nothing".
+#
+# Re-tested 2026-09-21 once the core produced a picture: the NO variant boots
+# from the RP2040 SD card and runs.  Diffing the two images, the ONLY difference
+# in the configuration payload is one byte -- a Type-1 write to the BSPI
+# register (0x3003E001), 0x0000026B vs 0x0000026C, the SPI flash read opcode
+# (Quad Output Fast Read, 3- vs 4-byte address).  The FDRI payload is identical
+# (sha256 78580b5198f2a3c2).  BSPI is only consulted in master SPI boot; this
+# board configures in slave SelectMAP x8, so it is never read.
+set_property BITSTREAM.CONFIG.SPI_32BIT_ADDR NO    [current_design]
 set_property BITSTREAM.CONFIG.SPI_BUSWIDTH   4     [current_design]

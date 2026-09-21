@@ -49,7 +49,7 @@ So `hr_clk` now comes from `clk_m2m`'s 100 MHz `hr_clk_o`, the same MMCM output
 the MEGA65 uses, and the crossing into `ui_clk` happens inside the memory path:
 
 ```
-core / ascal / QNICE -> avm_arbit_general -> avm_fifo   | 100 MHz  (hr_clk)
+core / ascal / QNICE -> avm_arbit_general -> read guard -> avm_fifo | 100 MHz
                                              ==CDC==
                         k2_avm_increase -> avm_mig_bridge -> MIG | 166.667 MHz
 ```
@@ -61,10 +61,41 @@ domain crossing would break its latency contract. `avm_fifo` is built on
 `xpm_fifo_axis`, so the crossing carries Xilinx's own CDC constraints, and it is
 the same component C64MEGA65 already uses for the REU's `main_clk` crossing.
 
-Cost: +165 LUTs, no extra BRAM. Consequence to remember: the Avalon side now
-runs at 100 MHz rather than 166.667, so peak 16-bit transaction rate ahead of
-the width converter is a third lower. Irrelevant for the scaler, but the REU and
-CRT cacher are the latency-sensitive consumers, so **measure M6, do not assume**.
+Two things had to change to make that crossing correct.
+
+**The command FIFO breaks the arbiter's read contract.** `avm_arbit` routes read
+responses by a single `last_grant` bit, and its `burstcount` bookkeeping lets a
+write accepted *during* a pending read decrement that read's count -- so the
+grant switches early and the rest of the read words are delivered to the wrong
+master. Upstream never sees this because HyperRAM is a blocking interface:
+waitrequest stays high for the whole transaction. A CDC FIFO drops waitrequest as
+soon as the command is *enqueued*. `k2_avm_read_guard` restores the blocking
+contract by holding waitrequest until every word of an accepted read has
+returned; because it drives the top arbiter's `m_avm_waitrequest_i`, the freeze
+propagates down all three levels of the `avm_arbit_general` tree.
+`K2/scripts/test_memory_order.sh` reproduces the misrouted word without the
+guard and passes with it. This is the mechanism behind the black screen --
+ILA captures show ascal stuck with `o_readlev` = 2 and `readdatavalid` never
+returning. See [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
+**The response FIFO was too shallow.** It was enlarged from 16 to 128 words.
+`avm_fifo`'s read side has no backpressure at all (`s_axis_tready_o` is left
+open, `m_axis_tready_i` is tied to `'1'`), so anything that does not fit is
+silently dropped. With the guard bounding traffic to one read burst in flight,
+128 is provably enough: the largest burst in the design is `crt_cacher`'s
+`X"80"` (128 words), MIG fills at 166.667 MHz while the 100 MHz side drains
+continuously, so peak occupancy is about 51 words. Note that depth 128 *alone*
+did not clear the black screen when tested on hardware on 2026-09-21; it is
+necessary, not sufficient.
+
+Consequence to remember: the Avalon side now runs at 100 MHz rather than
+166.667, so peak 16-bit transaction rate ahead of the width converter is a third
+lower, and reads no longer overlap. Both match what upstream's HyperRAM already
+did, and DDR3 is the faster part -- but the REU and CRT cacher are the
+latency-sensitive consumers, so **measure M6, do not assume**.
+
+**Confirmed on hardware 2026-09-21:** with the guard in place the board
+produces a picture. The black screen was this bug.
 
 ## Architecture
 
@@ -227,6 +258,7 @@ bash K2/scripts/test_lcd.sh           # 240x280 pixel-exact SPI against the C64 
 bash K2/scripts/test_status_leds.sh   # SK6812 GRB order, colors, priority, timing
 bash K2/scripts/test_temperature.sh   # XADC decode, MIG coupling, LCD footer
 bash K2/scripts/test_rtc.sh           # BQ4802LY timing, BCD, fallback, CDC
+bash K2/scripts/test_memory_order.sh  # CDC-side read ordering and arbiter ownership
 ```
 
 `tb_k2_menu` is worth singling out: it reads `OPTM_ITEMS`, the group array and

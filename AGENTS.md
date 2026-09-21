@@ -22,11 +22,17 @@ Setup +0.593 ns, hold +0.010 ns, pulse width +0.251 ns, zero failing endpoints,
 zero routing errors, zero bus-skew violations, every K2 constraint binding.
 30,619 LUTs, 192/365 BRAM tiles.
 
-**First hardware bring-up 2026-09-19.** The core configures and runs on a
-RevB0C board: `DONE` high, all PLLs locked, no CRC/IDCODE/packet errors, DDR3
-calibrated, and JTAG readback shows QNICE executing, the SD card being read,
-the 6510 writing RAM and the 1541 running. **There is still no HDMI picture**,
-so M1 is not complete. See `K2/DIAGNOSTICS.md`.
+**First hardware bring-up 2026-09-19; HDMI picture 2026-09-21.** The core
+configures and runs on a RevB0C board: `DONE` high, all PLLs locked, no
+CRC/IDCODE/packet errors, DDR3 calibrated, QNICE executing, the SD card being
+read, the 6510 running and the 1541 live.
+
+The black screen that blocked M1 was **not** a video or clocking fault at all:
+`avm_arbit` misrouted read responses once a CDC command FIFO was placed in front
+of it, so ascal wrote every frame into DDR3 and never got one back. See
+`k2_avm_read_guard` in the memory cheat sheet below, and `K2/DIAGNOSTICS.md` for
+the full evidence chain. Remaining M1 work is hardware validation of the
+keyboard, the menu chord, D64 loading and settings persistence.
 
 ## The emulated machine
 
@@ -93,10 +99,15 @@ IEC devices (no connector), analog VGA and retro 15 kHz (HDMI only).
   = 31.5278 MHz (50.124 Hz) and `i_clk_c64_slow` = 31.4490 MHz (49.999 Hz,
   HDMI flicker-free), selected by a `BUFGMUX_CTRL`.
 - **Memory: two clock domains, and the split is load-bearing.**
-  `hr_core_*` Avalon (16-bit) → `avm_arbit_general` → `avm_fifo` **at 100 MHz**
+  `hr_core_*` Avalon (16-bit) → `avm_arbit_general` → `k2_avm_read_guard` →
+  `avm_fifo` **at 100 MHz**
   (`clk_m2m`'s `hr_clk_o`, the MEGA65's HyperRAM clock) ==CDC==>
   `k2_avm_increase` (16→128 bit) → `avm_mig_bridge` → DDR3 **at MIG's
   166.667 MHz `ui_clk`**. `hr_count_long/short` are tied to zero.
+  `k2_avm_read_guard` is not optional: `avm_arbit` routes read responses by a
+  single `last_grant` bit and assumes a *blocking* slave, which a CDC command
+  FIFO is not. Without it, read data is delivered to the wrong master and the
+  scaler stalls. `K2/scripts/test_memory_order.sh` is the regression.
   Do NOT collapse this back onto `ui_clk` the way AExp-K2 does: upstream wrote
   the `hr_clk` domain against 10 ns, and at 6 ns it misses setup by 1.485 ns
   (84 endpoints in `sw_cartridge_wrapper` alone). The CDC must stay on the
@@ -116,10 +127,20 @@ IEC devices (no connector), analog VGA and retro 15 kHz (HDMI only).
 
 ## Installing a core (NOT JTAG)
 
-The RP2040 FPGA manager programs the Artix from `CNTX1..CNTX4/<name>.bin|.gz`
-on its own SD card, or from a per-context replaceable flash slot managed by
-`k2coremgr.pgz`. `fpga_mgr.cpp` enforces `FPGA_SIZE` = **9730652** bytes on the
-decompressed image, so:
+The RP2040 FPGA manager programs the Artix from its own SD card, or from a
+per-context replaceable flash slot managed by `k2coremgr.pgz`.
+
+**Name shared images `Wildbits*.gz`.** For each of `CNTX1..CNTX4` the manager
+scans the directory for `Wildbits*.gz`, then `Wildbits*.bin`
+(`find_wildbits_image` in `fpga_mgr.cpp`); a file without that prefix is never
+discovered. Where several match, the **highest-sorting name wins**, which gives
+free version ordering -- so use dates or zero-padded numbers, because `v1.9`
+sorts above `v1.10`. The manager also still honours one hard-coded filename per
+context (`CFP95600C.bin` for `CNTX1`, and so on), but that scheme is obsolete
+and must not be used for anything published.
+
+`fpga_mgr.cpp` enforces `FPGA_SIZE` = **9730652** bytes on the decompressed
+image, so:
 
 - `BITSTREAM.GENERAL.COMPRESS` **must stay FALSE** in `k2_revb0c.xdc`
   (AExp-K2 sets it TRUE; that image is ~5.2 MB and gets rejected);
@@ -129,8 +150,8 @@ decompressed image, so:
 
 Reference material lives outside this repo at
 `/mnt/Retro/WildBits/Firmware/fpga-manager` (`README.md`, `fpga_mgr.cpp`,
-`k2/README.md`), and `/home/bill/CFP95600C.bin` is a known-good context-1 core
-to compare against.
+`k2/README.md`). A known-good context-1 core to compare against is kept
+outside the repo at `~/CFP95600C.bin`.
 
 ## Build and verification
 

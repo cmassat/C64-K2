@@ -101,13 +101,48 @@ AExp-K2 Amiga core at 720p50, and the HDMI clocking path
 `video_out_clock` instantiation and its pin constraints) is byte-for-byte
 identical to that working port. Removing the SD card changes nothing.
 
-## Bitstream preamble is load-bearing
+## Bitstream preamble: a false lead, and how it fooled us
 
-Rebuilding the routed checkpoint with `BITSTREAM.CONFIG.SPI_32BIT_ADDR NO`
-moves the preamble from offset 288 to 32 and makes the first 48 bytes identical
-to the vendor cores. **That image does not configure the board**; the
-offset-288 image does. Their FDRI payloads are byte-identical, so only the
-preamble differs. See the comment at `K2/constraints/k2_revb0c.xdc`.
+**This section previously claimed the preamble was load-bearing. It is not.**
+Kept as a worked example of a confounded measurement.
+
+On 2026-09-19, rebuilding the routed checkpoint with
+`BITSTREAM.CONFIG.SPI_32BIT_ADDR NO` moved the preamble from offset 288 to 32,
+matching the vendor cores' first 48 bytes. That image appeared not to configure
+the board, while the offset-288 image appeared to work -- so the setting was
+pinned to `YES` with a "do not fix this toward vendor convention" warning.
+
+The test was worthless. It was run on a day when the core showed a **black
+screen from any image**, so "did not configure" and "configured fine and
+displayed nothing" produced identical evidence. The only instrument that could
+have told them apart is JTAG `CONFIG_STATUS`, and it was not used.
+
+Re-tested 2026-09-21, once the read-guard fix gave a picture: the `NO` variant
+**boots from the RP2040 SD card and runs**. It is now the default.
+
+Diffing the two images settles why. Exactly **one byte** of the configuration
+payload differs:
+
+```
+NO : ... 3003e001 0000026b ...
+YES: ... 3003e001 0000026c ...
+```
+
+`0x3003E001` is a Type-1 write to the **BSPI** register; `0x6B` / `0x6C` are
+the SPI flash read opcodes *Quad Output Fast Read* with a 3- or 4-byte address.
+The FDRI payload is byte-identical (sha256 `78580b5198f2a3c2`); the rest is 256
+bytes of leading `0xFF` traded against 256 trailing NOOPs, since Vivado holds
+the total at `FPGA_SIZE`.
+
+BSPI is only consulted in **master SPI boot**, where the FPGA fetches its own
+bitstream from flash. This board configures in **slave SelectMAP x8** with the
+RP2040 clocking bytes in, so that register is never read. There was never a
+plausible mechanism.
+
+**The lesson:** before trusting a "hardware-verified" claim, check what
+instrument produced it and whether the system was healthy enough for the
+measurement to mean anything. A negative result taken while something else is
+broken is not a result.
 
 ## Instrumented build
 
@@ -122,3 +157,105 @@ the pipeline's measured parameters are both in scope there:
 Create the cores with `create_ip -name ila`, declare them as components before
 the architecture's `begin`, and instantiate before `end architecture`. This is
 a throwaway build: restore `framework_k2.vhd` before committing.
+
+## Rewiring ILA probes without re-synthesising (2026-09-21)
+
+Synthesis of this design takes ~6 minutes, and the BASIC licence allows exactly
+one ILA with at most five probes. Chasing a signal by editing `framework_k2.vhd`
+and rebuilding therefore costs a full build per hypothesis.
+
+It is much cheaper to build the ILA **once** with generously sized probes, then
+re-point those probes at different nets on the *routed checkpoint*:
+
+```tcl
+open_checkpoint K2/build/pc_probe_routed.dcp
+# for each probe pin: clear DONT_TOUCH on the old net, disconnect, reconnect
+set_property DONT_TOUCH false $old_net
+disconnect_net -net $old_net -objects $pin
+connect_net -hierarchical -net $net -objects $pin
+route_design -directive Quick
+write_checkpoint -force .../probe_routed.dcp
+write_debug_probes -force .../probe.ltx
+write_bitstream -force .../probe.bit
+```
+
+That is a ~2 minute turnaround instead of ~20. `K2/build/rewire_*.tcl` are the
+working examples; the base ILA is `i_system/i_ila_control` with probe widths
+5/8/8/8/4 (five probes, the licence maximum). Two rules matter: `get_nets` must
+resolve to exactly one object, so check `llength` and fail loudly; and the old
+net's `DONT_TOUCH` has to be cleared or `disconnect_net` refuses.
+
+These are throwaway checkpoints. Nothing under `K2/build/` is committed.
+
+## The black screen is a stalled scaler read path (2026-09-21)
+
+Probing ascal's Avalon and output-side handshakes settled the question the
+2026-09-19 captures left open. Measured over 16384 samples:
+
+| Signal | Result | Meaning |
+|---|---|---|
+| `avl_write_i`, avalon FSM | toggling, `idle_st` <-> `writing_st` | ascal **writes** the C64 frame into DDR3 normally |
+| `o_readlev` | **stuck at 2** | ascal has two read bursts outstanding -- its maximum |
+| `hr_dig_read`, `hr_wide_read` | stuck 0 | so it issues no further reads |
+| `hr_dig_readdatavalid`, `hr_wide_readdatavalid` | **stuck 0 for all 16384 samples** | **the read data never comes back** |
+| `avl_read_sync`/`_sync2` = 1/1, `avl_read_pulse` | 0 | request toggle already delivered |
+| `o_readack_sync`/`_sync2` = 1/1, `o_readack` | 0 | ack toggle already consumed |
+| `o_readdataack_sync`/`_sync2` = 1/1 | 0 | no data ack pending |
+
+So the write path works, the read requests were issued and accepted, and the
+responses never returned. ascal's output FSM waits on `o_readlev` forever, emits
+no pixels, and the screen stays black. Every CDC toggle pair is in its settled
+state, so this is not a lost-pulse CDC bug.
+
+### Root cause: the arbiter cannot track a read across a command FIFO
+
+`M2M/vhdl/memory/avm_arbit.vhd` routes read responses by a single `last_grant`
+bit, with no per-transaction owner:
+
+```vhdl
+s0_avm_readdatavalid_o <= m_avm_readdatavalid_i when last_grant = '0' else '0';
+s1_avm_readdatavalid_o <= m_avm_readdatavalid_i when last_grant = '1' else '0';
+```
+
+and its `burstcount` bookkeeping has a second-order flaw: the write branch is
+guarded by `burstcount = 0`, so a write accepted *while a read is pending* falls
+through to the `else` branch and **decrements the pending read's burstcount**.
+That makes `s0_last` fire early, the grant switch, and `last_grant` flip --
+after which the remaining read words are delivered to the other master.
+
+Upstream never hits this because the MEGA65's HyperRAM is a **blocking**
+interface: `m_avm_waitrequest_i` stays high for the whole transaction, so no new
+command can be accepted while a read is in flight. Putting `avm_fifo` (the CDC)
+in front of the arbiter breaks that contract -- waitrequest drops as soon as the
+command is *enqueued*, not when it completes.
+
+`avm_arbit_general` is a tree of three `avm_arbit` instances, so the flaw is
+present at every level of the tree.
+
+### The fix, and its status
+
+`K2/vhdl/k2_avm_read_guard.vhd` sits between `avm_arbit_general` and `avm_fifo`
+and holds `waitrequest` high until every word of an accepted read has returned,
+restoring the blocking contract. Because the guard drives the *top* arbiter's
+`m_avm_waitrequest_i`, and each `avm_arbit` computes
+`s_avm_waitrequest_o <= m_avm_waitrequest_i or not grant`, the freeze propagates
+down the whole tree.
+
+`bash K2/scripts/test_memory_order.sh` reproduces the misrouted read word
+without the guard (`owner=3, incorrectly to competitor=1`) and passes with it,
+plus a unit test covering 1/64/128/255-word bursts, gapped responses,
+downstream backpressure and reset.
+
+Serialising reads is not a regression against upstream: the HyperRAM the
+framework was written for is fully blocking too, and DDR3 is the faster part.
+
+**Status: confirmed on hardware 2026-09-21.** The guarded build closes timing
+(WNS +0.523 ns, WHS +0.041 ns, WPWS +0.251 ns, zero failing endpoints, zero bus
+skew violations), and once programmed over JTAG the board produces a picture.
+
+Getting here took two wrong turns worth remembering: enlarging the CDC read FIFO
+from 16 to 128 words was *necessary but not sufficient*, and the 09-19 captures
+were read as "the 6510 is not running" when the CPU was fine all along -- the
+frame was being written to DDR3 correctly and simply never read back. When the
+write path works and the read path does not, suspect the transport, not the
+producer.
