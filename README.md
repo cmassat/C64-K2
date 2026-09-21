@@ -55,6 +55,55 @@ fixed filename per context. If your core never loads, update the
 
 If something goes wrong, hold **RESET** through a restart for golden recovery.
 
+SD cards
+--------
+
+There are **two different cards**, and it is easy to confuse them:
+
+| Card | Holds |
+|---|---|
+| The FPGA manager's card (inside, on the RP2040) | The cores themselves, in `CNTX1`..`CNTX4` — see Installation above |
+| The K2's own card (bottom or back slot) | Disk images, ROMs and your settings |
+
+The K2's card should be **FAT32**. The core's file browser starts in `/c64`,
+so put your content there:
+
+```
+/c64/
+    c64k2           <- settings file, exactly 98 bytes (see below)
+    games/          <- your own layout; the browser walks subdirectories
+    demos/
+    prg/
+    jd-c64.bin      <- optional JiffyDOS ROMs, 16,384 bytes each
+    jd-c1541.bin
+```
+
+The subdirectory names are entirely up to you — only `/c64` itself matters.
+
+### The settings file is not optional
+
+**Settings are only saved if `/c64/c64k2` already exists and is exactly 98
+bytes.** If the file is missing or the wrong size, the core silently discards
+your settings on every power cycle, with no error.
+
+A ready-made one is attached to each release — just copy it to `/c64/c64k2`.
+A file of `0xFF` bytes means "use defaults", so a fresh copy starts clean.
+
+If you ever need to regenerate it:
+
+```sh
+cd M2M/tools && ./make_config.sh c64k2 auto
+```
+
+That size is tied to the number of menu entries, so it changes if the menu
+changes. A release's file always matches that release's core.
+
+### JiffyDOS
+
+JiffyDOS ROMs are not included — they are commercial. If you own them, put
+`jd-c64.bin` and `jd-c1541.bin` (16,384 bytes each) anywhere under `/c64` and
+load them from the menu.
+
 Using the core
 --------------
 
