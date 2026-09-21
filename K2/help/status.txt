@@ -1,0 +1,30 @@
+
+ Commodore 64 for Wildbits/K2
+
+ SID:
+
+ * For older productions choose 6581 and
+   for newer productions choose 8580.
+ * Stick to Mono SID unless you know what
+   you are doing.
+
+ Video:
+
+ The K2 has no analog VGA output. The VGA
+ and retro 15 kHz menu entries have no
+ effect on this board.
+
+ Writing to disk images:
+
+ Wait until the drive led is done turning
+ from green to yellow back and forth and
+ is off again before unmount, reset or OFF.
+
+ Board status:
+
+ STAT_LED0 shows DDR3 calibration,
+ STAT_LED1 shows reset. The built-in LCD
+ identifies the loaded core.
+
+ Cursor left to go back.           (3 of 3)
+ Press Space to close the help screen.

@@ -1,0 +1,30 @@
+
+ Commodore 64 for Wildbits/K2
+
+ When browsing the menu:
+
+ C= + RESTORE:       Open/close menu
+ Top-left arrow:     Leave sub-menu
+ Settings are saved when closing the menu
+
+ When browsing for D64, CRT and PRG:
+
+ Cursor up/down:     File up/down
+ Cursor left/right:  Page up/down
+ Top-left arrow:     Cancel browsing
+ F1:                 Bottom SD card
+ F3:                 Back SD card
+ Enter:              Mount, load CRT/PRG
+ Space:              Unmount drive
+
+ The K2 has four independent cursor keys;
+ no shifting is needed to move up or left.
+
+ The menu uses C= so that RESTORE alone
+ still triggers the C64 NMI and RUN/STOP +
+ RESTORE still performs a warm reset. For
+ a full reset, press the board reset
+ button.
+
+ Crsr left: Prev  Crsr right: Next (2 of 3)
+ Press Space to close the help screen.
