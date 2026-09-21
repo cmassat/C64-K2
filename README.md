@@ -55,6 +55,40 @@ fixed filename per context. If your core never loads, update the
 
 If something goes wrong, hold **RESET** through a restart for golden recovery.
 
+Using the core
+--------------
+
+**Hold `C=` (the Commodore key) and press `RESTORE` to open the on-screen
+menu.** The same chord closes it, and your settings are saved when it closes.
+
+The menu deliberately uses `C=` so the RESTORE key keeps its original C64
+behaviour:
+
+| Keys | Action |
+|---|---|
+| `C=` + `RESTORE` | Open / close the menu |
+| `RESTORE` alone | C64 NMI, exactly as on real hardware |
+| `RUN/STOP` + `RESTORE` | Warm reset |
+| Board reset button | Full reset |
+
+In the menu, the top-left arrow key leaves a sub-menu.
+
+When browsing for D64, CRT or PRG files:
+
+| Keys | Action |
+|---|---|
+| Cursor up / down | File up / down |
+| Cursor left / right | Page up / down |
+| `Enter` | Mount disk, or load CRT / PRG |
+| `Space` | Unmount drive |
+| `F1` / `F3` | Bottom SD card / back SD card |
+| Top-left arrow | Cancel browsing |
+
+The K2 has four independent cursor keys, so no shifting is needed to move up
+or left.
+
+More help is built into the core itself, on the menu's help screens.
+
 Not available on this board
 ---------------------------
 
