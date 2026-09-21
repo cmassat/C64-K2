@@ -192,7 +192,7 @@ static timing analysis.
 | # | Scope | Status |
 |---|---|---|
 | M0 | Repo, board shell, project creation, elaboration | Done |
-| M1 | C64 BASIC boot on HDMI | **In progress** -- core runs on hardware, no HDMI output yet |
+| M1 | C64 BASIC boot on HDMI | **Done** -- HDMI output confirmed on hardware 2026-09-21 |
 | M2 | Optical keyboard, RESTORE to the NMI, C= menu chord | Done |
 | M3 | D64 / 1541 via vdrives and the file browser | Planned |
 | M4 | PS/2 mouse as a 1351 (POT values, not quadrature) | Planned |

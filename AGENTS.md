@@ -4,7 +4,8 @@
 
 This checkout is a K2 port of **C64MEGA65 V5.2**
 (`https://github.com/MJoergen/C64MEGA65`, remote `upstream`, push disabled).
-The active branch is `k2`; `master` mirrors upstream. Read `K2/README.md`
+The active branch is `main`. Upstream is tracked through the `upstream`
+remote, not a local mirror branch. Read `K2/README.md`
 before working on anything under `K2/`.
 
 The port is modelled on **AExp-K2** (`/home/bill/Development/artix7/AExp-K2`),
