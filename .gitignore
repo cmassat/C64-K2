@@ -70,4 +70,5 @@ __pycache__/
 K2/release/*.bin
 K2/release/*.gz
 K2/release/*.bit
+K2/release/c64k2
 
